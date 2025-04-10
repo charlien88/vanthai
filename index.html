@@ -143,6 +143,16 @@
             font-size: 0.9rem;
         }
 
+        .error-message {
+            color: var(--danger-color);
+            text-align: center;
+            padding: 15px;
+            border: 1px solid var(--danger-color);
+            border-radius: var(--border-radius);
+            margin: 20px 0;
+            background-color: #fdecea;
+        }
+
         @media (max-width: 768px) {
             th, td {
                 padding: 8px 10px;
@@ -170,6 +180,7 @@
 
         <div class="table-container">
             <div class="loading" id="loading">Đang tải dữ liệu...</div>
+            <div id="errorContainer"></div>
             <div id="tableWrapper">
                 <!-- Bảng dữ liệu sẽ được thêm vào đây -->
             </div>
@@ -187,6 +198,7 @@
             const loadingElement = document.getElementById('loading');
             const lastUpdatedElement = document.getElementById('lastUpdated');
             const refreshBtn = document.getElementById('refreshBtn');
+            const errorContainer = document.getElementById('errorContainer');
             
             // Hàm định dạng ngày giờ
             function formatDateTime(date) {
@@ -211,6 +223,18 @@
                     }
                 }
                 return -1;
+            }
+            
+            // Hàm hiển thị lỗi
+            function showError(message) {
+                errorContainer.innerHTML = `<div class="error-message">
+                    <i class="fas fa-exclamation-triangle"></i> ${message}
+                </div>`;
+            }
+            
+            // Hàm xóa lỗi
+            function clearError() {
+                errorContainer.innerHTML = '';
             }
             
             // Hàm tạo bảng từ dữ liệu
@@ -245,14 +269,16 @@
                     });
                     
                     // Thêm class cho các hạng 1, 2, 3
-                    if (rankColumnIndex !== -1) {
+                    if (rankColumnIndex !== -1 && data[i][rankColumnIndex]) {
                         const rank = parseInt(data[i][rankColumnIndex]);
-                        if (rank === 1) {
-                            row.classList.add('rank-1');
-                        } else if (rank === 2) {
-                            row.classList.add('rank-2');
-                        } else if (rank === 3) {
-                            row.classList.add('rank-3');
+                        if (!isNaN(rank)) {
+                            if (rank === 1) {
+                                row.classList.add('rank-1');
+                            } else if (rank === 2) {
+                                row.classList.add('rank-2');
+                            } else if (rank === 3) {
+                                row.classList.add('rank-3');
+                            }
                         }
                     }
                     
@@ -263,48 +289,91 @@
                 return table;
             }
             
-            // Hàm tải dữ liệu từ Google Sheets
-            async function loadData() {
-                try {
-                    loadingElement.style.display = 'block';
-                    tableWrapper.innerHTML = '';
+            // Hàm tải dữ liệu từ Google Sheets sử dụng JSONP
+            function loadData() {
+                loadingElement.style.display = 'block';
+                tableWrapper.innerHTML = '';
+                clearError();
+                
+                // Sử dụng phương pháp JSONP để tránh CORS
+                const spreadsheetId = '1kT4hROpJaGR9gmBPt-m4Q-HprqTe-GlaejQxnvwwD9I'; // THAY BẰNG ID CỦA BẠN
+                const sheetName = 'Sheet1'; // THAY BẰNG TÊN SHEET CỦA BẠN
+                const apiKey = 'AIzaSyDeU6hRBATWrsagRwk4n80-K8ZhpOiYuaQ'; // THAY BẰNG API KEY CỦA BẠN
+                const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${sheetName}?key=${apiKey}`;
+                
+                fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Lỗi HTTP: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (!data.values || data.values.length === 0) {
+                            throw new Error('Không có dữ liệu trong bảng tính');
+                        }
+                        
+                        // Tạo và hiển thị bảng
+                        const table = createTable(data.values);
+                        tableWrapper.appendChild(table);
+                        lastUpdatedElement.textContent = `Cập nhật lúc: ${formatDateTime(new Date())}`;
+                    })
+                    .catch(error => {
+                        console.error('Lỗi khi tải dữ liệu:', error);
+                        showError(`Không thể tải dữ liệu: ${error.message}`);
+                        
+                        // Thử phương pháp dự phòng nếu có lỗi API
+                        if (error.message.includes('400') || error.message.includes('API')) {
+                            loadDataBackup();
+                        }
+                    })
+                    .finally(() => {
+                        loadingElement.style.display = 'none';
+                    });
+            }
+            
+            // Phương pháp dự phòng nếu API không hoạt động
+            function loadDataBackup() {
+                // Sử dụng Google Sheets publish to web feature
+                const spreadsheetId = '2PACX-1vSPc7GnPYkbFV1m383rpowhCFZpue-n6gn93toLmlT3zg-Oge7s_YoC5PSxI1iHNhViSpaQlIVMKTnk';
+                const url = `https://docs.google.com/spreadsheets/d/e/${spreadsheetId}/pub?output=csv`;
+                
+                fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Lỗi HTTP: ${response.status}`);
+                        }
+                        return response.text();
+                    })
+                    .then(csvText => {
+                        const data = csvToArray(csvText);
+                        if (data.length === 0) {
+                            throw new Error('Không có dữ liệu trong bảng tính');
+                        }
+                        
+                        const table = createTable(data);
+                        tableWrapper.appendChild(table);
+                        lastUpdatedElement.textContent = `Cập nhật lúc: ${formatDateTime(new Date())} (dùng bản sao)`;
+                    })
+                    .catch(error => {
+                        console.error('Lỗi khi tải dữ liệu dự phòng:', error);
+                        showError(`Không thể tải dữ liệu dự phòng: ${error.message}`);
+                    });
+            }
+            
+            // Hàm chuyển đổi CSV sang mảng
+            function csvToArray(csvText) {
+                const lines = csvText.split('\n');
+                const result = [];
+                
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].trim() === '') continue;
                     
-                    // Sử dụng Google Sheets API v4
-                    const spreadsheetId = '1kT4hROpJaGR9gmBPt-m4Q-HprqTe-GlaejQxnvwwD9I'; // Thay bằng ID của bạn
-                    const apiKey = 'AIzaSyDeU6hRBATWrsagRwk4n80-K8ZhpOiYuaQ'; // Thay bằng API key của bạn
-                    const range = 'Sheet1!A:D'; // Điều chỉnh phạm vi nếu cần
-                    
-                    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}`;
-                    
-                    const response = await fetch(url);
-                    
-                    if (!response.ok) {
-                        throw new Error(`Lỗi HTTP: ${response.status}`);
-                    }
-                    
-                    const data = await response.json();
-                    
-                    if (!data.values || data.values.length === 0) {
-                        throw new Error('Không có dữ liệu');
-                    }
-                    
-                    // Tạo và hiển thị bảng
-                    const table = createTable(data.values);
-                    tableWrapper.appendChild(table);
-                    
-                    loadingElement.style.display = 'none';
-                    lastUpdatedElement.textContent = `Cập nhật lúc: ${formatDateTime(new Date())}`;
-                    
-                } catch (error) {
-                    console.error('Lỗi khi tải dữ liệu:', error);
-                    loadingElement.textContent = 'Đã xảy ra lỗi khi tải dữ liệu. Vui lòng thử lại sau.';
-                    lastUpdatedElement.textContent = `Lỗi: ${error.message}`;
-                    
-                    // Hiển thị thông báo chi tiết hơn cho người dùng
-                    if (error.message.includes('403')) {
-                        loadingElement.innerHTML += '<p style="color: var(--danger-color);">Lỗi truy cập. Vui lòng kiểm tra lại cấu hình API.</p>';
-                    }
+                    const currentline = lines[i].split(',');
+                    result.push(currentline);
                 }
+                
+                return result;
             }
             
             // Sự kiện click nút làm mới
