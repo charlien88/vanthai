@@ -203,9 +203,9 @@
             }
             
             // Hàm tìm index của cột Xếp hạng
-            function findRankColumnIndex(headerCells) {
-                for (let i = 0; i < headerCells.length; i++) {
-                    const text = headerCells[i].textContent.trim().toLowerCase();
+            function findRankColumnIndex(headers) {
+                for (let i = 0; i < headers.length; i++) {
+                    const text = headers[i].toLowerCase();
                     if (text.includes('xếp hạng') || text.includes('hạng') || text.includes('rank')) {
                         return i;
                     }
@@ -213,65 +213,85 @@
                 return -1;
             }
             
-            // Hàm tải và hiển thị dữ liệu
+            // Hàm tạo bảng từ dữ liệu
+            function createTable(data) {
+                const table = document.createElement('table');
+                
+                // Tạo header
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                
+                data[0].forEach(header => {
+                    const th = document.createElement('th');
+                    th.textContent = header;
+                    headerRow.appendChild(th);
+                });
+                
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+                
+                // Tìm cột xếp hạng
+                const rankColumnIndex = findRankColumnIndex(data[0]);
+                
+                // Tạo body
+                const tbody = document.createElement('tbody');
+                for (let i = 1; i < data.length; i++) {
+                    const row = document.createElement('tr');
+                    
+                    data[i].forEach((cell, index) => {
+                        const td = document.createElement('td');
+                        td.textContent = cell;
+                        row.appendChild(td);
+                    });
+                    
+                    // Thêm class cho các hạng 1, 2, 3
+                    if (rankColumnIndex !== -1) {
+                        const rank = parseInt(data[i][rankColumnIndex]);
+                        if (rank === 1) {
+                            row.classList.add('rank-1');
+                        } else if (rank === 2) {
+                            row.classList.add('rank-2');
+                        } else if (rank === 3) {
+                            row.classList.add('rank-3');
+                        }
+                    }
+                    
+                    tbody.appendChild(row);
+                }
+                
+                table.appendChild(tbody);
+                return table;
+            }
+            
+            // Hàm tải dữ liệu từ Google Sheets
             async function loadData() {
                 try {
                     loadingElement.style.display = 'block';
                     tableWrapper.innerHTML = '';
                     
-                    // Sử dụng Google Sheets API để lấy dữ liệu dưới dạng HTML
-                    const sheetId = '2PACX-1vSPc7GnPYkbFV1m383rpowhCFZpue-n6gn93toLmlT3zg-Oge7s_YoC5PSxI1iHNhViSpaQlIVMKTnk';
-                    const sheetUrl = `https://docs.google.com/spreadsheets/d/e/2PACX-1vSPc7GnPYkbFV1m383rpowhCFZpue-n6gn93toLmlT3zg-Oge7s_YoC5PSxI1iHNhViSpaQlIVMKTnk/pubhtml`;
+                    // Sử dụng Google Sheets API v4
+                    const spreadsheetId = '1kT4hROpJaGR9gmBPt-m4Q-HprqTe-GlaejQxnvwwD9I'; // Thay bằng ID của bạn
+                    const apiKey = 'AIzaSyCBp8FCI-ZmuYjznXj-njUE8kxYfi7neIg'; // Thay bằng API key của bạn
+                    const range = 'Sheet1!A:D'; // Điều chỉnh phạm vi nếu cần
                     
-                    // Sử dụng proxy để tránh CORS (chỉ dùng cho demo)
-                    const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-                    const response = await fetch(proxyUrl + sheetUrl);
+                    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}`;
+                    
+                    const response = await fetch(url);
                     
                     if (!response.ok) {
                         throw new Error(`Lỗi HTTP: ${response.status}`);
                     }
                     
-                    const html = await response.text();
+                    const data = await response.json();
                     
-                    // Tạo div tạm để phân tích HTML
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = html;
-                    
-                    // Tìm bảng dữ liệu
-                    const tables = tempDiv.getElementsByTagName('table');
-                    if (tables.length === 0) {
-                        throw new Error('Không tìm thấy bảng dữ liệu');
+                    if (!data.values || data.values.length === 0) {
+                        throw new Error('Không có dữ liệu');
                     }
                     
-                    const originalTable = tables[0];
+                    // Tạo và hiển thị bảng
+                    const table = createTable(data.values);
+                    tableWrapper.appendChild(table);
                     
-                    // Tìm cột Xếp hạng
-                    const headerRow = originalTable.rows[0];
-                    const rankColumnIndex = findRankColumnIndex(headerRow.cells);
-                    
-                    // Tạo bảng mới để hiển thị
-                    const newTable = document.createElement('table');
-                    newTable.innerHTML = originalTable.innerHTML;
-                    
-                    // Nếu tìm thấy cột Xếp hạng, thêm class cho các hàng 1, 2, 3
-                    if (rankColumnIndex !== -1) {
-                        const rows = newTable.rows;
-                        for (let i = 1; i < rows.length; i++) {
-                            const rankCell = rows[i].cells[rankColumnIndex];
-                            if (rankCell) {
-                                const rank = parseInt(rankCell.textContent.trim());
-                                if (rank === 1) {
-                                    rows[i].classList.add('rank-1');
-                                } else if (rank === 2) {
-                                    rows[i].classList.add('rank-2');
-                                } else if (rank === 3) {
-                                    rows[i].classList.add('rank-3');
-                                }
-                            }
-                        }
-                    }
-                    
-                    tableWrapper.appendChild(newTable);
                     loadingElement.style.display = 'none';
                     lastUpdatedElement.textContent = `Cập nhật lúc: ${formatDateTime(new Date())}`;
                     
@@ -279,6 +299,11 @@
                     console.error('Lỗi khi tải dữ liệu:', error);
                     loadingElement.textContent = 'Đã xảy ra lỗi khi tải dữ liệu. Vui lòng thử lại sau.';
                     lastUpdatedElement.textContent = `Lỗi: ${error.message}`;
+                    
+                    // Hiển thị thông báo chi tiết hơn cho người dùng
+                    if (error.message.includes('403')) {
+                        loadingElement.innerHTML += '<p style="color: var(--danger-color);">Lỗi truy cập. Vui lòng kiểm tra lại cấu hình API.</p>';
+                    }
                 }
             }
             
